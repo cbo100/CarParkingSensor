@@ -1,0 +1,3 @@
+[submodule "lib/VL53L3CX"]
+	path = lib/VL53L3CX
+	url = https://github.com/stm32duino/VL53L3CX
