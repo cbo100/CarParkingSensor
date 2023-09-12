@@ -1,0 +1,2 @@
+void initialiseDistanceMeasurement();
+int getDistanceMeasurement();
