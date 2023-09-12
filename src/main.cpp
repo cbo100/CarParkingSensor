@@ -1,42 +1,3 @@
-/**
- ******************************************************************************
- * @file    VL53L3CX_Sat_HelloWorld.ino
- * @author  SRA
- * @version V1.0.0
- * @date    30 July 2020
- * @brief   Arduino test application for the STMicrolectronics VL53L3CX
- *          proximity sensor satellite based on FlightSense.
- *          This application makes use of C++ classes obtained from the C
- *          components' drivers.
- ******************************************************************************
- * @attention
- *
- * <h2><center>&copy; COPYRIGHT(c) 2020 STMicroelectronics</center></h2>
- *
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met:
- *   1. Redistributions of source code must retain the above copyright notice,
- *      this list of conditions and the following disclaimer.
- *   2. Redistributions in binary form must reproduce the above copyright notice,
- *      this list of conditions and the following disclaimer in the documentation
- *      and/or other materials provided with the distribution.
- *   3. Neither the name of STMicroelectronics nor the names of its contributors
- *      may be used to endorse or promote products derived from this software
- *      without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- ******************************************************************************
- */
 /*
  * To use this sketch you need to connect the VL53L3CX satellite sensor directly to the Nucleo board with wires in this way:
  * pin 1 (Interrupt) of the VL53L3CX satellite connected to pin A2 of the Nucleo board 
@@ -48,6 +9,8 @@
  * pins 7, 8, 9 and 10 are not connected.
  */
 /* Includes ------------------------------------------------------------------*/
+// #define I2C_BUFFER_LENGTH 256
+
 #include <Arduino.h>
 #include <Wire.h> //I2C_BUFFER_LENGTH=256
 #include <vl53lx_class.h>
@@ -57,6 +20,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <stdlib.h>
+
 
 #define DEV_I2C Wire
 #define SerialPort Serial
@@ -70,12 +34,23 @@
 VL53LX sensor_vl53lx_sat(&DEV_I2C, D0);
 
 
+// smoothing distance measurement
+const int numReadings = 10;
+int readings[numReadings];
+int readIndex = 0;
+int total = 0;
+int average = 0;
+
 /* Setup ---------------------------------------------------------------------*/
 
 void setup()
 {
    // Led.
    pinMode(LedPin, OUTPUT);
+
+   for (int thisReading = 0; thisReading < numReadings; thisReading++) {
+      readings[thisReading] = 0;
+   }      
 
    // Initialize serial for output.
    SerialPort.begin(115200);
@@ -93,8 +68,11 @@ void setup()
    //Initialize VL53LX satellite component.
    sensor_vl53lx_sat.InitSensor(0x29);
 
-   // sensor_vl53lx_sat.VL53LX_SetMeasurementTimingBudgetMicroSeconds(300);
+   sensor_vl53lx_sat.VL53LX_SetMeasurementTimingBudgetMicroSeconds(300);
+   
    // Start Measurements
+   sensor_vl53lx_sat.VL53LX_StartMeasurement();
+   sensor_vl53lx_sat.VL53LX_StopMeasurement();
    sensor_vl53lx_sat.VL53LX_StartMeasurement();
 }
 
@@ -102,11 +80,15 @@ void setup()
 int lastDistance = 0;
 int wakeUntil = 0;
 
+
+
 void displayStatus(int dist) {
    lastDistance = dist;
    SerialPort.print(dist);
    SerialPort.println("mm");
 }
+
+
 
 void loop()
 {
@@ -116,14 +98,14 @@ void loop()
    int no_of_object_found = 0, j;
    char report[64];
    int status;
+   delay(100);
    do
    {
       status = sensor_vl53lx_sat.VL53LX_GetMeasurementDataReady(&NewDataReady);
-      if (wakeUntil > millis()) {
-         delay(100);
-      } else {
-         delay(1000);
-      }
+      // if (wakeUntil > millis()) {
+      // } else {
+      //    delay(1000);
+      // }
    } while (!NewDataReady);
 
    //Led on
@@ -136,16 +118,15 @@ void loop()
       if (no_of_object_found > 0) {
          if (pMultiRangingData->RangeData[0].RangeStatus == VL53LX_RANGESTATUS_RANGE_VALID) {
             int dist = pMultiRangingData->RangeData[0].RangeMilliMeter;
-            if (abs(dist - lastDistance) > 100) {
-               wakeUntil = millis() + 10000;
-               // activate for ~180,000millis
-               // need to also stay awake while distance changing still
-               // maybe record distance from 1 second ago rather than previous distance?
-               Serial.println("Waking for 10s");
-            }
-            if (wakeUntil > millis()) {
-               displayStatus(dist);
-            }
+
+            total -= readings[readIndex];
+            readings[readIndex] = dist;
+            total += readings[readIndex];
+            readIndex++;
+            if (readIndex >= numReadings)
+               readIndex = 0;
+
+            displayStatus(total / numReadings);
          } else {
             Serial.print("Invalid Status:");
             Serial.println(pMultiRangingData->RangeData[0].RangeStatus);
